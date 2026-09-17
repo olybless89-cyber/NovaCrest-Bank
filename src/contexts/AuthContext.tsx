@@ -28,17 +28,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    // `loading` must stay true until the PROFILE is resolved too, not just
+    // the session. ProtectedRoute makes its adminOnly redirect decision the
+    // instant `loading` goes false — if that happened as soon as the user
+    // was known (profile fetch still in flight), an admin's `profile` would
+    // briefly read null, `profile?.role !== 'admin'` would be true, and
+    // ProtectedRoute would bounce them to /dashboard before the real
+    // profile ever arrived (surfacing as broken deep links / refreshes on
+    // any admin-only route, and losing the specific path in the process).
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) getProfile(session.user.id).then(setProfile);
-    }).finally(() => setLoading(false));
+      if (session?.user) {
+        getProfile(session.user.id)
+          .then(setProfile)
+          .catch(() => setProfile(null))
+          .finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
+    });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        getProfile(session.user.id).then(setProfile);
+        setLoading(true);
+        getProfile(session.user.id)
+          .then(setProfile)
+          .catch(() => setProfile(null))
+          .finally(() => setLoading(false));
       } else {
         setProfile(null);
+        setLoading(false);
       }
     });
 

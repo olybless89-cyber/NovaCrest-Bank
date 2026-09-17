@@ -1,2 +1,17 @@
 [auth.email]
 enable_confirmations = false
+
+# These Edge Functions perform their own JWT verification in code (checking
+# the Authorization header and calling auth.getUser(), then rejecting with
+# 401/403 as appropriate) and each implements its own OPTIONS handler for
+# CORS. Platform-level JWT verification must be off, or the CORS preflight
+# (which never carries an Authorization header) is rejected with 401 before
+# the function's own OPTIONS handler ever runs, breaking every browser call.
+[functions.banking-ops]
+verify_jwt = false
+
+[functions.admin-create-user]
+verify_jwt = false
+
+[functions.admin-manage-user]
+verify_jwt = false
