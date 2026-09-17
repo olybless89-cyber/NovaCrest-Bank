@@ -396,33 +396,25 @@ export default function TransferPage() {
 
   const executeExternalTransfer = async (fromAcct: Account, amount: number) => {
     setLoading(true);
-    await new Promise(res => setTimeout(res, 1500));
     try {
-      const ref = genRef();
-      const desc = [
-        `External Wire Transfer → ${recipientAcctNum.trim()}`,
-        bankName && `Bank: ${bankName}`,
-        routingNumber && `Routing: ${routingNumber}`,
-        swiftCode && `SWIFT: ${swiftCode}`,
-        transferPurpose && `Purpose: ${purposeLabel[transferPurpose] || transferPurpose}`,
-        extMemo && `Memo: ${extMemo}`,
-      ].filter(Boolean).join(' | ');
-
-      const { error: txErr } = await supabase.from('transactions').insert({
-        from_account_id: fromAcct.id,
-        user_id: user!.id,
-        transaction_type: 'transfer_out',
-        amount: Math.abs(amount),
-        description: desc,
-        status: 'completed',
-        reference_number: ref,
+      // Routed through the banking-ops edge function so the debit is
+      // authenticated and authorized server-side (regular users have no
+      // direct UPDATE access to accounts — by design, all balance changes
+      // must go through this trusted, audited path) instead of relying on
+      // a direct client-side write that silently no-ops under RLS.
+      const { data, error } = await supabase.functions.invoke('banking-ops', {
+        body: {
+          action: 'external_wire_transfer',
+          from_account_id: fromAcct.id,
+          amount,
+          recipient_account_number: recipientAcctNum.trim(),
+          bank_name: bankName, routing_number: routingNumber, swift_code: swiftCode,
+          bank_address: bankAddress, transfer_purpose: purposeLabel[transferPurpose] || transferPurpose,
+          memo: extMemo,
+        }
       });
-      if (txErr) throw new Error(txErr.message);
-
-      await supabase.from('accounts').update({
-        balance: fromAcct.balance - amount,
-        available_balance: fromAcct.available_balance - amount,
-      }).eq('id', fromAcct.id);
+      if (error) throw new Error(await parseEdgeError(error));
+      const ref: string = data?.reference_number || genRef();
 
       setReceipt({
         ref,

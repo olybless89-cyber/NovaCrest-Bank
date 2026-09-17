@@ -71,14 +71,31 @@
 }
 
 /* ═══════════════════════════════════════════════════════════
-   LANDING PAGE — light/white theme applied via .landing-light
-   Scoped so dashboards keep the dark navy theme untouched.
+   LANDING PAGE — light theme, scoped via CSS variable override.
+   Re-declaring the theme tokens here (instead of hand-patching
+   individual selectors) means every Tailwind semantic class —
+   bg-background, text-foreground, bg-card, text-muted-foreground,
+   bg-secondary, border, etc. — resolves correctly on the landing
+   page automatically. Dashboards never get the `.landing-light`
+   class, so the dark navy theme in :root is untouched there.
 ═══════════════════════════════════════════════════════════ */
 
-/* The landing page <main> wrapper */
 .landing-light {
-  background-color: #ffffff;
-  color: #0f1923;
+  --background: 0 0% 100%;
+  --foreground: 216 55% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 216 55% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 216 55% 11%;
+  --secondary: 220 100% 97%;
+  --secondary-foreground: 216 55% 11%;
+  --muted: 220 14% 96%;
+  --muted-foreground: 218 17% 35%;
+  --border: 220 13% 91%;
+  --input: 220 13% 91%;
+
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
 }
 
 /* ── Hero section — full-screen background slider ───────── */
@@ -179,6 +196,12 @@
 .hero-review-badge { background: #ffffff; border: 1px solid #e5e7eb; }
 .hero-review-text { color: #374151; }
 
+/* Alternate sections get a very subtle off-white tint (layered
+   on top of the white --background from the variable override) */
+.landing-light section:nth-child(even) {
+  background-color: #f7f9ff;
+}
+
 /* ── Landing header (light, on white bg) ────────────────── */
 .landing-header-light {
   background: rgba(255,255,255,0.95);
@@ -199,37 +222,6 @@
   cursor: pointer;
 }
 .landing-header-light .header-cta-btn:hover { background: #1d4ed8; }
-
-/* ── Other landing sections on white ───────────────────── */
-.landing-light section {
-  background-color: #ffffff;
-}
-/* Alternate sections get a very subtle off-white tint */
-.landing-light section:nth-child(even) {
-  background-color: #f7f9ff;
-}
-/* Section headings */
-.landing-light h2, .landing-light h3 {
-  color: #0d1a2d;
-}
-/* Section body text */
-.landing-light p {
-  color: #4a5568;
-}
-/* Cards on light bg */
-.landing-light .bg-card {
-  background-color: #ffffff;
-  border-color: #e5e7eb;
-  color: #0d1a2d;
-}
-/* Muted text */
-.landing-light .text-muted-foreground {
-  color: #6b7280;
-}
-/* Primary accent colour stays blue */
-.landing-light .text-primary { color: #2563eb; }
-.landing-light .bg-primary { background-color: #2563eb; }
-.landing-light .border-primary { border-color: #2563eb; }
 
 /* ── Banking Slider section ─────────────────────────────── */
 .banking-slider-section {
@@ -304,37 +296,13 @@
   color: #4a5568;
 }
 
-/* FAQ accordion on light bg */
-.landing-light #faq .border-border {
-  border-color: #e5e7eb;
-}
-.landing-light #faq [data-state] button {
-  color: #0d1a2d;
-}
-.landing-light #faq [data-state] button:hover {
-  color: #2563eb;
-}
-
-/* Security section card on light bg */
-.landing-light #security .bg-card,
-.landing-light #security .bg-secondary {
-  background-color: #f0f5ff;
-  border-color: #dde8ff;
-}
-.landing-light #security .text-foreground { color: #0d1a2d; }
-
-/* Accounts section cards */
-.landing-light #accounts .bg-card { background-color: #ffffff; border-color: #e5e7eb; }
-.landing-light #accounts .bg-secondary { background-color: #f0f5ff; }
-
-/* Testimonials cards */
-.landing-light .rounded-2xl.border.border-border.bg-card {
-  background-color: #ffffff;
-  border-color: #e5e7eb;
-}
-
-/* HowItWorks stat cards */
-.landing-light .rounded-2xl.border.border-border.bg-card.p-6 {
+/* HowItWorks stat cards — slightly tinted vs. the plain white
+   --card default used everywhere else on the landing page.
+   Scoped by id rather than chaining utility classes: esbuild's CSS
+   minifier chokes on adjacent same-prefixed classes like
+   ".border.border-border" (a pre-existing "Unexpected *" warning
+   during `vite build`), and an id selector is more robust anyway. */
+.landing-light #how-it-works .bg-card {
   background-color: #f7f9ff;
   border-color: #dde8ff;
 }

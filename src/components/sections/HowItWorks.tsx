@@ -75,10 +75,10 @@ export function HowItWorks() {
               alt="Modern bank building exterior architecture"
               className="w-full h-full object-cover"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent flex items-end p-5">
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-5">
               <div>
-                <p className="text-sm font-semibold text-foreground">Established Presence</p>
-                <p className="text-xs text-muted-foreground">Licensed in 50 states</p>
+                <p className="text-sm font-semibold text-white">Established Presence</p>
+                <p className="text-xs text-white/70">Licensed in 50 states</p>
               </div>
             </div>
           </div>
@@ -88,10 +88,10 @@ export function HowItWorks() {
               alt="Mobile banking app interface on phone screen"
               className="w-full h-full object-cover"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent flex items-end p-5">
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-5">
               <div>
-                <p className="text-sm font-semibold text-foreground">Banking On-the-Go</p>
-                <p className="text-xs text-muted-foreground">iOS & Android available</p>
+                <p className="text-sm font-semibold text-white">Banking On-the-Go</p>
+                <p className="text-xs text-white/70">iOS & Android available</p>
               </div>
             </div>
           </div>

@@ -28,6 +28,7 @@ const bgSlides = [
 export function Hero() {
   const [current, setCurrent] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [failed, setFailed] = useState<Record<number, boolean>>({});
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const total = bgSlides.length;
 
@@ -47,8 +48,13 @@ export function Hero() {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      {/* ── Sliding background images ── */}
-      <div className="absolute inset-0 z-0">
+      {/* ── Sliding background images ──
+          bg-[#0d1a2d] is a guaranteed base: if a slide image fails to load
+          (or hasn't loaded yet), the section stays a solid dark navy instead
+          of falling through to the page background — which is what kept
+          washing this section out to a pale, low-contrast gray whenever an
+          image URL died. */}
+      <div className="absolute inset-0 z-0 bg-[#0d1a2d]">
         <AnimatePresence mode="sync">
           <motion.div
             key={current}
@@ -58,11 +64,14 @@ export function Hero() {
             exit={{ opacity: 0, scale: 0.97 }}
             transition={{ duration: 1.1, ease: [0.32, 0.72, 0, 1] }}
           >
-            <img
-              src={bgSlides[current].img}
-              alt={bgSlides[current].label}
-              className="w-full h-full object-cover"
-            />
+            {!failed[current] && (
+              <img
+                src={bgSlides[current].img}
+                alt={bgSlides[current].label}
+                className="w-full h-full object-cover"
+                onError={() => setFailed((f) => ({ ...f, [current]: true }))}
+              />
+            )}
           </motion.div>
         </AnimatePresence>
 

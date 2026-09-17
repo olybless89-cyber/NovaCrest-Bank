@@ -6,6 +6,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const ADMIN_ACTIONS = new Set([
+  'admin_fund',
+  'place_hold',
+  'release_hold',
+  'approve_deposit',
+  'approve_withdrawal',
+]);
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -15,21 +23,48 @@ Deno.serve(async (req) => {
   );
 
   try {
+    // ── Authenticate the caller (every action requires a valid session) ──
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) throw new Error('Unauthorized');
+
+    const callerClient = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+    const { data: { user: caller }, error: callerErr } = await callerClient.auth.getUser();
+    if (callerErr || !caller) throw new Error('Unauthorized');
+
     const body = await req.json();
     const { action } = body;
 
+    // ── Admin-only actions: verify the caller actually holds the admin role
+    //    server-side. Never trust an `admin_id` supplied in the request body —
+    //    it is always overridden with the authenticated caller's own id below. ──
+    if (ADMIN_ACTIONS.has(action)) {
+      const { data: callerProfile } = await supabase
+        .from('profiles').select('role').eq('id', caller.id).single();
+      if (!callerProfile || callerProfile.role !== 'admin') {
+        throw new Error('Forbidden: admin only');
+      }
+    }
+
     if (action === 'internal_transfer') {
-      // Transfer between same user's accounts
-      const { from_account_id, to_account_id, amount, user_id } = body;
-      if (!from_account_id || !to_account_id || !amount || !user_id) throw new Error('Missing fields');
+      // Transfer between the caller's own accounts
+      const { from_account_id, to_account_id, amount } = body;
+      if (!from_account_id || !to_account_id || !amount) throw new Error('Missing fields');
+      if (!(amount > 0)) throw new Error('Amount must be greater than zero');
+      const user_id = caller.id; // never trust a client-supplied user_id
 
       const { data: fromAcct, error: e1 } = await supabase.from('accounts').select('*').eq('id', from_account_id).single();
       if (e1 || !fromAcct) throw new Error('Source account not found');
+      if (fromAcct.user_id !== user_id) throw new Error('Unauthorized: you do not own the source account');
       if (fromAcct.available_balance < amount) throw new Error('Insufficient funds');
       if (!fromAcct.is_active) throw new Error('Account is inactive');
 
       const { data: toAcct, error: e2 } = await supabase.from('accounts').select('*').eq('id', to_account_id).single();
       if (e2 || !toAcct) throw new Error('Destination account not found');
+      if (toAcct.user_id !== user_id) throw new Error('Unauthorized: destination account is not yours');
 
       // Debit source
       await supabase.from('accounts').update({
@@ -55,15 +90,17 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'external_transfer') {
-      const { from_account_id, recipient_account_number, amount, user_id,
+      const { from_account_id, recipient_account_number, amount,
         bank_name, routing_number, swift_code, bank_address, transfer_purpose, memo } = body;
-      if (!from_account_id || !recipient_account_number || !amount || !user_id) throw new Error('Missing fields');
+      if (!from_account_id || !recipient_account_number || !amount) throw new Error('Missing fields');
+      if (!(amount > 0)) throw new Error('Amount must be greater than zero');
+      const user_id = caller.id; // never trust a client-supplied user_id
 
       const { data: fromAcct } = await supabase.from('accounts').select('*').eq('id', from_account_id).single();
       if (!fromAcct) throw new Error('Source account not found');
+      if (fromAcct.user_id !== user_id) throw new Error('Unauthorized');
       if (!fromAcct.is_active) throw new Error('Your account is inactive');
       if (fromAcct.available_balance < amount) throw new Error('Insufficient funds');
-      if (fromAcct.user_id !== user_id) throw new Error('Unauthorized');
 
       const { data: toAcct } = await supabase.from('accounts').select('*').eq('account_number', recipient_account_number.trim()).single();
       if (!toAcct) throw new Error('Recipient account not found. Please verify the account number.');
@@ -101,12 +138,54 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
+    if (action === 'external_wire_transfer') {
+      // Wire transfer to a genuinely external bank account (not one of ours) —
+      // debits the caller's account and records the leg; there is no matching
+      // destination account in our system to credit.
+      const { from_account_id, amount, recipient_account_number,
+        bank_name, routing_number, swift_code, bank_address, transfer_purpose, memo } = body;
+      if (!from_account_id || !amount || !recipient_account_number) throw new Error('Missing fields');
+      if (!(amount > 0)) throw new Error('Amount must be greater than zero');
+      const user_id = caller.id; // never trust a client-supplied user_id
+
+      const { data: fromAcct } = await supabase.from('accounts').select('*').eq('id', from_account_id).single();
+      if (!fromAcct) throw new Error('Source account not found');
+      if (fromAcct.user_id !== user_id) throw new Error('Unauthorized');
+      if (!fromAcct.is_active) throw new Error('Your account is inactive');
+      if (fromAcct.available_balance < amount) throw new Error('Insufficient funds');
+
+      const details: string[] = [`External Wire Transfer to ${recipient_account_number}`];
+      if (bank_name) details.push(`Bank: ${bank_name}`);
+      if (routing_number) details.push(`Routing: ${routing_number}`);
+      if (swift_code) details.push(`SWIFT: ${swift_code}`);
+      if (bank_address) details.push(`Address: ${bank_address}`);
+      if (transfer_purpose) details.push(`Purpose: ${transfer_purpose}`);
+      if (memo) details.push(`Memo: ${memo}`);
+      const desc = details.join(' | ');
+
+      await supabase.from('accounts').update({
+        balance: fromAcct.balance - amount,
+        available_balance: fromAcct.available_balance - amount,
+        updated_at: new Date().toISOString()
+      }).eq('id', from_account_id);
+
+      const ref = 'TXN' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();
+      await supabase.from('transactions').insert({
+        from_account_id, user_id, transaction_type: 'transfer_out', amount,
+        status: 'completed', reference_number: ref, description: desc,
+      });
+      return new Response(JSON.stringify({ success: true, reference_number: ref }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     if (action === 'admin_fund') {
-      const { account_id, amount, admin_id, user_id } = body;
-      if (!account_id || !amount || !admin_id || !user_id) throw new Error('Missing fields');
+      const { account_id, amount } = body;
+      const admin_id = caller.id; // never trust a client-supplied admin_id
+      if (!account_id || !amount) throw new Error('Missing fields');
+      if (!(amount > 0)) throw new Error('Amount must be greater than zero');
 
       const { data: acct } = await supabase.from('accounts').select('*').eq('id', account_id).single();
       if (!acct) throw new Error('Account not found');
+      const user_id = acct.user_id;
 
       await supabase.from('accounts').update({
         balance: acct.balance + amount,
@@ -124,12 +203,15 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'place_hold') {
-      const { account_id, amount, reason, admin_id, user_id } = body;
-      if (!account_id || !amount || !reason || !admin_id || !user_id) throw new Error('Missing fields');
+      const { account_id, amount, reason } = body;
+      const admin_id = caller.id; // never trust a client-supplied admin_id
+      if (!account_id || !amount || !reason) throw new Error('Missing fields');
+      if (!(amount > 0)) throw new Error('Amount must be greater than zero');
 
       const { data: acct } = await supabase.from('accounts').select('*').eq('id', account_id).single();
       if (!acct) throw new Error('Account not found');
       if (acct.available_balance < amount) throw new Error('Insufficient available balance to hold');
+      const user_id = acct.user_id;
 
       // Reduce available balance
       await supabase.from('accounts').update({
@@ -150,8 +232,9 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'release_hold') {
-      const { hold_id, admin_id, user_id } = body;
-      if (!hold_id || !admin_id) throw new Error('Missing fields');
+      const { hold_id } = body;
+      const admin_id = caller.id; // never trust a client-supplied admin_id
+      if (!hold_id) throw new Error('Missing fields');
 
       const { data: hold } = await supabase.from('holds').select('*').eq('id', hold_id).single();
       if (!hold) throw new Error('Hold not found');
@@ -172,9 +255,8 @@ Deno.serve(async (req) => {
       }).eq('id', hold_id);
 
       const ref = 'RLS-' + Math.random().toString(36).slice(2, 14).toUpperCase();
-      const targetUserId = user_id || hold.user_id;
       await supabase.from('transactions').insert({
-        to_account_id: hold.account_id, user_id: targetUserId, transaction_type: 'release',
+        to_account_id: hold.account_id, user_id: hold.user_id, transaction_type: 'release',
         amount: hold.amount, status: 'completed', reference_number: ref,
         performed_by_admin: admin_id, description: 'Hold released'
       });
@@ -182,11 +264,14 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'approve_deposit') {
-      const { deposit_request_id, account_id, amount, admin_id, user_id } = body;
-      if (!deposit_request_id || !account_id || !amount || !admin_id || !user_id) throw new Error('Missing fields');
+      const { deposit_request_id, account_id, amount } = body;
+      const admin_id = caller.id; // never trust a client-supplied admin_id
+      if (!deposit_request_id || !account_id || !amount) throw new Error('Missing fields');
+      if (!(amount > 0)) throw new Error('Amount must be greater than zero');
 
       const { data: acct } = await supabase.from('accounts').select('*').eq('id', account_id).single();
       if (!acct) throw new Error('Account not found');
+      const user_id = acct.user_id;
 
       // Credit account
       await supabase.from('accounts').update({
@@ -210,12 +295,15 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'approve_withdrawal') {
-      const { withdrawal_request_id, account_id, amount, admin_id, user_id } = body;
-      if (!withdrawal_request_id || !account_id || !amount || !admin_id || !user_id) throw new Error('Missing fields');
+      const { withdrawal_request_id, account_id, amount } = body;
+      const admin_id = caller.id; // never trust a client-supplied admin_id
+      if (!withdrawal_request_id || !account_id || !amount) throw new Error('Missing fields');
+      if (!(amount > 0)) throw new Error('Amount must be greater than zero');
 
       const { data: acct } = await supabase.from('accounts').select('*').eq('id', account_id).single();
       if (!acct) throw new Error('Account not found');
       if (acct.available_balance < amount) throw new Error('Insufficient funds for withdrawal');
+      const user_id = acct.user_id;
 
       // Debit account
       await supabase.from('accounts').update({
@@ -241,8 +329,9 @@ Deno.serve(async (req) => {
     throw new Error(`Unknown action: ${action}`);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal error';
+    const status = message === 'Unauthorized' ? 401 : message.startsWith('Forbidden') ? 403 : 400;
     return new Response(JSON.stringify({ error: message }), {
-      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      status, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 });

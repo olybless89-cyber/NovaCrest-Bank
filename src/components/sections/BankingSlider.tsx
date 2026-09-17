@@ -43,6 +43,7 @@ const slides = [
 export function BankingSlider() {
   const [current, setCurrent] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [failed, setFailed] = useState<Record<number, boolean>>({});
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const total = slides.length;
 
@@ -76,7 +77,7 @@ export function BankingSlider() {
 
         {/* Main slider */}
         <div
-          className="banking-slider-frame relative overflow-hidden rounded-3xl shadow-2xl"
+          className="banking-slider-frame relative overflow-hidden rounded-3xl shadow-2xl bg-[#0d1a2d]"
           onMouseEnter={() => setPaused(true)}
           onMouseLeave={() => setPaused(false)}
         >
@@ -90,11 +91,15 @@ export function BankingSlider() {
               transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
               className="relative w-full"
             >
-              <img
-                src={slide.img}
-                alt={slide.label}
-                className="w-full object-cover banking-slider-img"
-              />
+              {!failed[current] && (
+                <img
+                  src={slide.img}
+                  alt={slide.label}
+                  className="w-full object-cover banking-slider-img"
+                  onError={() => setFailed((f) => ({ ...f, [current]: true }))}
+                />
+              )}
+              {failed[current] && <div className="w-full banking-slider-img" />}
               {/* Gradient overlay */}
               <div className="absolute inset-0 banking-slider-overlay" />
 
@@ -156,18 +161,21 @@ export function BankingSlider() {
               key={i}
               onClick={() => { setCurrent(i); setPaused(true); }}
               aria-label={`Go to slide ${i + 1}`}
-              className="relative overflow-hidden rounded-xl transition-all duration-300"
+              className="relative overflow-hidden rounded-xl bg-[#0d1a2d] transition-all duration-300"
               style={{
                 width: i === current ? 72 : 48,
                 height: 40,
               }}
             >
-              <img
-                src={s.img}
-                alt={s.label}
-                className="w-full h-full object-cover transition-opacity duration-300"
-                style={{ opacity: i === current ? 1 : 0.45 }}
-              />
+              {!failed[i] && (
+                <img
+                  src={s.img}
+                  alt={s.label}
+                  className="w-full h-full object-cover transition-opacity duration-300"
+                  style={{ opacity: i === current ? 1 : 0.45 }}
+                  onError={() => setFailed((f) => ({ ...f, [i]: true }))}
+                />
+              )}
               {i === current && (
                 <div className="absolute inset-0 rounded-xl banking-slider-thumb-active-ring" />
               )}
