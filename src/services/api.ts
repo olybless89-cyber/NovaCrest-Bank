@@ -124,6 +124,7 @@ export async function updateTransaction(
     status?: string;
     description?: string;
     reference_number?: string;
+    created_at?: string; // ISO timestamp — lets admins backdate a transaction
   }
 ): Promise<{ error: string | null }> {
   const { error } = await supabase

@@ -29,6 +29,19 @@ interface EditForm {
   status: string;
   description: string;
   reference_number: string;
+  created_at: string; // datetime-local input value, e.g. 2026-01-15T09:30
+}
+
+// datetime-local inputs use "YYYY-MM-DDTHH:mm" in the browser's local time,
+// with no timezone suffix — the Date constructor parses that as local time
+// too, so converting each way just means padding/reading the same fields.
+function toDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function fromDatetimeLocal(value: string): string {
+  return new Date(value).toISOString();
 }
 
 export default function AdminTransactionsPage() {
@@ -39,7 +52,7 @@ export default function AdminTransactionsPage() {
 
   // Edit state
   const [editTx, setEditTx] = useState<Transaction | null>(null);
-  const [editForm, setEditForm] = useState<EditForm>({ transaction_type: '', amount: '', status: '', description: '', reference_number: '' });
+  const [editForm, setEditForm] = useState<EditForm>({ transaction_type: '', amount: '', status: '', description: '', reference_number: '', created_at: '' });
   const [saving, setSaving] = useState(false);
 
   // Delete state
@@ -63,23 +76,26 @@ export default function AdminTransactionsPage() {
       status: tx.status,
       description: tx.description ?? '',
       reference_number: tx.reference_number ?? '',
+      created_at: toDatetimeLocal(tx.created_at),
     });
   }
 
   async function handleSave() {
     if (!editTx) return;
     setSaving(true);
+    const created_at = fromDatetimeLocal(editForm.created_at);
     const { error } = await updateTransaction(editTx.id, {
       transaction_type: editForm.transaction_type,
       amount: parseFloat(editForm.amount),
       status: editForm.status,
       description: editForm.description,
       reference_number: editForm.reference_number,
+      created_at,
     });
     setSaving(false);
     if (error) { toast.error(`Failed to update: ${error}`); return; }
     setTransactions(prev => prev.map(t => t.id === editTx.id
-      ? { ...t, ...editForm, amount: parseFloat(editForm.amount), transaction_type: editForm.transaction_type as import('@/types/types').TransactionType, status: editForm.status as import('@/types/types').TransactionStatus }
+      ? { ...t, ...editForm, amount: parseFloat(editForm.amount), transaction_type: editForm.transaction_type as import('@/types/types').TransactionType, status: editForm.status as import('@/types/types').TransactionStatus, created_at }
       : t
     ));
     toast.success('Transaction updated successfully');
@@ -217,6 +233,15 @@ export default function AdminTransactionsPage() {
                 value={editForm.reference_number}
                 onChange={e => setEditForm(f => ({ ...f, reference_number: e.target.value }))}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Date &amp; Time</Label>
+              <Input
+                type="datetime-local"
+                value={editForm.created_at}
+                onChange={e => setEditForm(f => ({ ...f, created_at: e.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">Backdate or postdate this transaction — shown to the user as when it occurred.</p>
             </div>
             <div className="space-y-1.5">
               <Label>Description</Label>

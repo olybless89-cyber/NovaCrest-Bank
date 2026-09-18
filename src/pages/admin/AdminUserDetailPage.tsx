@@ -26,6 +26,18 @@ import { ArrowLeft, DollarSign, Lock, User, Pencil, Trash2, Eye, EyeOff, ShieldC
 const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 const GOLD = '#c9a84c';
 
+// datetime-local inputs use "YYYY-MM-DDTHH:mm" in the browser's local time,
+// with no timezone suffix — the Date constructor parses that as local time
+// too, so converting each way just means padding/reading the same fields.
+function toDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function fromDatetimeLocal(value: string): string {
+  return new Date(value).toISOString();
+}
+
 export default function AdminUserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user: adminUser } = useAuth();
@@ -59,7 +71,7 @@ export default function AdminUserDetailPage() {
 
   const [editTxOpen, setEditTxOpen] = useState(false);
   const [editTx, setEditTx] = useState<Transaction | null>(null);
-  const [txForm, setTxForm] = useState({ transaction_type: '', status: '', amount: '', description: '', reference_number: '' });
+  const [txForm, setTxForm] = useState({ transaction_type: '', status: '', amount: '', description: '', reference_number: '', created_at: '' });
   const [txSaving, setTxSaving] = useState(false);
 
   // Security Codes
@@ -187,7 +199,7 @@ export default function AdminUserDetailPage() {
 
   const openEditTx = (tx: Transaction) => {
     setEditTx(tx);
-    setTxForm({ transaction_type: tx.transaction_type, status: tx.status, amount: String(tx.amount), description: tx.description || '', reference_number: tx.reference_number || '' });
+    setTxForm({ transaction_type: tx.transaction_type, status: tx.status, amount: String(tx.amount), description: tx.description || '', reference_number: tx.reference_number || '', created_at: toDatetimeLocal(tx.created_at) });
     setEditTxOpen(true);
   };
   const saveTx = async (e: React.FormEvent) => {
@@ -198,6 +210,7 @@ export default function AdminUserDetailPage() {
       amount: parseFloat(txForm.amount),
       description: txForm.description,
       reference_number: txForm.reference_number,
+      created_at: fromDatetimeLocal(txForm.created_at),
     });
     setTxSaving(false);
     if (r.error) { toast.error(r.error); return; }
@@ -694,6 +707,10 @@ export default function AdminUserDetailPage() {
               </div>
               <div className="space-y-1.5 col-span-2"><Label>Description</Label>
                 <Textarea value={txForm.description} onChange={e => setTxForm(f => ({ ...f, description: e.target.value }))} className="px-3 min-h-[60px]" />
+              </div>
+              <div className="space-y-1.5 col-span-2"><Label>Date &amp; Time</Label>
+                <Input type="datetime-local" value={txForm.created_at} onChange={e => setTxForm(f => ({ ...f, created_at: e.target.value }))} className="px-3" />
+                <p className="text-xs text-muted-foreground">Backdate or postdate this transaction — shown to the user as when it occurred.</p>
               </div>
             </div>
             <DialogFooter>
